@@ -12,12 +12,7 @@ class BlufiBytes {
   }
 
   factory BlufiBytes.fromList(List<int> data) {
-    final byteValues = Uint8List(data.length);
-    for (var i = 0; i < data.length; i++) {
-      byteValues[i] = data[i];
-    }
-
-    return BlufiBytes(bytes: byteValues);
+    return BlufiBytes(bytes: Uint8List.fromList(data));
   }
 
   factory BlufiBytes.copy(BlufiBytes other) {

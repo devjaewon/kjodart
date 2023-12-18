@@ -23,6 +23,8 @@ class BlufiClientImpl extends BlufiClient {
 
   BlufiCallback? _blufiUserCallback;
 
+  BlufiNotifyData? _notifyData;
+
   int _writeTimeout = -1;
 
   int _packageLengthLimit = -1;
@@ -38,6 +40,8 @@ class BlufiClientImpl extends BlufiClient {
   bool _requireAck = false;
 
   int _sendSequence = -1;
+
+  int _readSequence = -1;
 
   @override
   Future<void> close() async {
@@ -148,6 +152,14 @@ class BlufiClientImpl extends BlufiClient {
 
   int _getTypeValue(int type, int subType) {
     return (subType << 2) | type;
+  }
+
+  int _getPakcageType(int typeValue) {
+    return typeValue & int.parse('11', radix: 2);
+  }
+
+  int _getSubType(int typeValue) {
+    return (typeValue & int.parse('11111100', radix: 2)) >> 2;
   }
 
   Future<bool> _post(bool encrypt, bool checksum, bool requireAck, int type, BlufiBytes? data) {
@@ -346,7 +358,174 @@ class BlufiClientImpl extends BlufiClient {
   }
 
   void _onNotificationReceived(List<int> response) {
+    _notifyData ??= BlufiNotifyData();
+    final data = BlufiBytes.fromList(response);
+    _printLog('Gatt Notification: $data');
 
+    final parse = _parseNotification(data, _notifyData!);
+    if (parse < 0) {
+      _blufiUserCallback?.onError(this, BlufiCallback.codeInvalidNotification);
+    } else if (parse == 0) {
+      _parseBlufiNotifyData(_notifyData!);
+      _notifyData = null;
+    }
+  }
+
+  int _parseNotification(BlufiBytes data, BlufiNotifyData notification) {
+    if (data.isEmpty) {
+      return -1;
+    }
+    if (data.length < 4) {
+      return -2;
+    }
+
+    final sequence = data.get(2);
+    final readSequence = ++_readSequence & 0xff;
+    if (sequence != readSequence) {
+      return -3;
+    }
+
+    final type = data.get(0);
+    final pkgType = _getPakcageType(type);
+    final subType = _getSubType(type);
+
+    notification
+      ..typeValue = type
+      ..pkgType = pkgType
+      ..subType = subType;
+
+    final frameCtrl = data.get(1);
+    notification.frameCtrlValue = frameCtrl;
+    final frameCtrlData = BlufiFrameCtrlData(value: frameCtrl);
+
+    final dataLen = data.get(3);
+    var dataOffset = 4;
+    final dataBytes = <int>[];
+
+    for (var i = dataOffset; i < dataOffset + dataLen; i++) {
+      dataBytes.add(data.get(i));
+    }
+
+    if (frameCtrlData.isEncrypted()) {
+      // TODO;
+    }
+
+    if (frameCtrlData.isChecksum()) {
+      final respChecksum1 = data.get(data.length - 1);
+      final respChecksum2 = data.get(data.length - 2);
+
+      var crc = BlufiCrc.calcCrc(0, [sequence, dataLen]);
+      crc = BlufiCrc.calcCrc(crc, dataBytes);
+      final calcChecksum1 = crc >> 8 & 0xff;
+      final calcChecksum2 = crc & 0xff;
+
+      if (respChecksum1 != calcChecksum1 || respChecksum2 != calcChecksum2) {
+        return -4;
+      }
+    }
+
+    if (frameCtrlData.hasFrag()) {
+      dataOffset = 2;
+    } else {
+      dataOffset = 0;
+    }
+    notification.addData(Uint8List.fromList(dataBytes), dataOffset);
+
+    return frameCtrlData.hasFrag() ? 1 : 0;
+  }
+
+  void _parseBlufiNotifyData(BlufiNotifyData data) {
+    final pkgType = data.pkgType;
+    final subType = data.subType;
+    final dataBytes = data.dataBytes;
+
+    switch (pkgType) {
+      case BlufiParameter.typeCtrlPackageValue:
+        _parseCtrlData(subType, dataBytes);
+        break;
+      case BlufiParameter.typeDataPackageValue:
+        _parseDataData(subType, dataBytes);
+        break;
+      default:
+        break;
+    }
+  }
+
+  void _parseCtrlData(int subType, BlufiBytes data) {
+    if (subType == BlufiParameter.typeCtrlSubTypeAck) {
+      _parseAck(data);
+    }
+  }
+
+  void _parseAck(BlufiBytes bytes) {
+    var ack = 0x100;
+    if (bytes.isNotEmpty) {
+      ack = bytes.get(0) & 0xff;
+    }
+    _ack.add(ack);
+  }
+
+  void _parseDataData(int subType, BlufiBytes data) {
+    switch (subType) {
+      case BlufiParameter.typeDataSubTypeNeg:
+        // TODO:
+        break;
+      case BlufiParameter.typeDataSubTypeVersion:
+        // TODO:
+        break;
+      case BlufiParameter.typeDataSubTypeWifiConnectionState:
+        break;
+      case BlufiParameter.typeDataSubTypeWifiList:
+        _parseWifiScanList(data);
+        break;
+      case BlufiParameter.typeDataSubTypeCustomData:
+        // TODO:
+        break;
+      case BlufiParameter.typeDataSubTypeError:
+        {
+          final errCode = data.isNotEmpty ? (data.get(0) & 0xff) : 0xff;
+          _blufiUserCallback?.onError(this, errCode);
+          break;
+        }
+      default:
+        break;
+    }
+  }
+
+  void _parseWifiScanList(BlufiBytes bytes) {
+    if (bytes.length < 2) {
+      return;
+    }
+
+    final results = <BlufiScanResult>[];
+    final dataReader = BlufiBytesInputStream(bytes: bytes);
+    while (dataReader.available() > 0) {
+      final length = dataReader.read() & 0xff;
+      if (length < 1) {
+        break;
+      }
+
+      final rssi = dataReader.read();
+      final ssidBytes = BlufiBytes(length: length - 1);
+      final ssidRead = dataReader.readAndCopy(ssidBytes, 0, ssidBytes.length);
+
+      if (ssidRead != ssidBytes.length) {
+        break;
+      }
+
+      final result = BlufiScanResult()
+        ..type = BlufiScanResult.typeWifi
+        ..rssi = rssi - 256
+        ..ssid = ssidBytes.toString();
+
+      results.add(result);
+    }
+
+    _blufiUserCallback?.onDeviceScanResult.call(
+      this,
+      0,
+      results,
+    );
   }
 
   void _printLog(String message) {
