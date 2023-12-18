@@ -9,6 +9,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 part 'blufi_callback.dart';
 part 'blufi_client.dart';
+part 'blufi_frame_ctrl_data.dart';
+part 'blufi_notify_data.dart';
 part 'params/blufi_configure_params.dart';
 part 'params/blufi_parameter.dart';
 part 'structs/blufi_bytes_input_stream.dart';
