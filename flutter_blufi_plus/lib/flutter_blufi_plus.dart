@@ -5,6 +5,7 @@
 library flutter_blufi_plus;
 
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
@@ -19,6 +20,7 @@ part 'params/blufi_parameter.dart';
 part 'structs/blufi_bytes_input_stream.dart';
 part 'structs/blufi_bytes_output_stream.dart';
 part 'structs/blufi_bytes.dart';
+part 'security/blufi_crc.dart';
 part 'response/blufi_scan_result.dart';
 part 'response/blufi_status_response.dart';
 part 'response/blufi_version_response.dart';
