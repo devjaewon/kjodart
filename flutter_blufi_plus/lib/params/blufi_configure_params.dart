@@ -23,6 +23,10 @@ class BlufiConfigureParams {
 
   int softApMaxConnection = 0;
 
+  BlufiBytes get staPasswordBytes {
+    return BlufiBytes(bytes: Uint8List.fromList(utf8.encode(staPassword)));
+  }
+
   @override
   String toString() {
     final str = 'op mode = $opMode, '

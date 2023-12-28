@@ -50,7 +50,9 @@ class BlufiClientImpl extends BlufiClient {
   }
   
   @override
-  Future<void> configure(BlufiConfigureParams params) async {}
+  Future<void> configure(BlufiConfigureParams params) async {
+    return _configure(params);
+  }
   
   @override
   Future<void> connect() async {
@@ -663,6 +665,61 @@ if (bytes.length < 3) {
       0,
       results,
     );
+  }
+
+  Future<void> _configure(BlufiConfigureParams params) async {
+    final opMode = params.opMode;
+
+    switch (opMode) {
+      case BlufiParameter.opModeSta:
+        {
+          if (!(await _postDeviceMode(opMode))) {
+            _blufiUserCallback?.onPostConfigureParams.call(this, BlufiCallback.codeConfErrSetOpMode);
+            return;
+          }
+          if (!(await _postStaWifiInfo(params))) {
+            _blufiUserCallback?.onPostConfigureParams.call(this, BlufiCallback.codeConfErrPostSta);
+            return;
+          }
+          _blufiUserCallback?.onPostConfigureParams.call(this, BlufiCallback.statusSuccess);
+        }
+    }
+  }
+
+  Future<bool> _postDeviceMode(int deviceMode) async {
+    final type = _getTypeValue(BlufiParameter.typeCtrlPackageValue, BlufiParameter.typeCtrlSubTypeAck);
+    final data = BlufiBytes(bytes: Uint8List.fromList([deviceMode]));
+
+    try {
+      return _post(_encrypted, _checksum, true, type, data);
+    } catch (err) {
+      return false;
+    }
+  }
+
+  Future<bool> _postStaWifiInfo(BlufiConfigureParams params) async {
+    try {
+      final ssidType = _getTypeValue(BlufiParameter.typeDataPackageValue, BlufiParameter.typeDataSubTypeStaWifiSsid);
+      final ssidBytes = params.staSsidBytes;
+      final successSsid = await _post(_encrypted, _checksum, _requireAck, ssidType, ssidBytes);
+      if (!successSsid) {
+        return false;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final pwdType = _getTypeValue(BlufiParameter.typeDataPackageValue, BlufiParameter.typeDataSubTypeStaWifiPassword);
+      final successPwd = await _post(_encrypted, _checksum, _requireAck, pwdType, params.staPasswordBytes);
+      if (!successPwd) {
+        return false;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      final confirmType = _getTypeValue(BlufiParameter.typeCtrlPackageValue, BlufiParameter.typeCtrlSubTypeConnectWifi);
+
+      return _post(false, false, _requireAck, confirmType, null);
+    } catch (err) {
+      return false;
+    }
   }
 
   void _printLog(String message) {
