@@ -80,7 +80,7 @@ abstract class BlufiCallback {
   void onDeviceStatusResponse(
     BlufiClient client,
     int status,
-    BlufiStatusResponse response,
+    BlufiStatusResponse? response,
   ) {}
 
   void onDeviceScanResult(

@@ -73,7 +73,9 @@ class BlufiClientImpl extends BlufiClient {
   Future<void> requestCloseConnection() async {}
   
   @override
-  Future<void> requestDeviceStatus() async {}
+  Future<void> requestDeviceStatus() async {
+    return _requestDeviceStatus();
+  }
   
   @override
   Future<void> requestDeviceVersion() async {}
@@ -143,6 +145,21 @@ class BlufiClientImpl extends BlufiClient {
       request = await _post(_encrypted, _checksum, _requireAck, type, null);
     } catch (err) {
       _printLog('post requestDeviceWifiScan interrupted');
+    }
+
+    if (!request) {
+      _blufiUserCallback?.onDeviceScanResult(this, BlufiCallback.codeWriteDataFailed, []);
+    }
+  }
+
+  Future<void> _requestDeviceStatus() async {
+    final type = _getTypeValue(BlufiParameter.typeCtrlPackageValue, BlufiParameter.typeCtrlSubTypeGetWifiStatus);
+    var request = false;
+
+    try {
+      request = await _post(_encrypted, _checksum, false, type, null);
+    } catch (err) {
+      _printLog('post requestDeviceStatus interrupted');
     }
 
     if (!request) {
@@ -474,6 +491,7 @@ class BlufiClientImpl extends BlufiClient {
         // TODO:
         break;
       case BlufiParameter.typeDataSubTypeWifiConnectionState:
+        _parseWifiState(data);
         break;
       case BlufiParameter.typeDataSubTypeWifiList:
         _parseWifiScanList(data);
@@ -489,6 +507,125 @@ class BlufiClientImpl extends BlufiClient {
         }
       default:
         break;
+    }
+  }
+
+  void _parseWifiState(BlufiBytes bytes) {
+if (bytes.length < 3) {
+      _blufiUserCallback?.onDeviceStatusResponse.call(this, BlufiCallback.codeInvalidData, null);
+      return;
+    }
+
+    final response = BlufiStatusResponse();
+    final opMode = bytes.getMaskingByte(0);
+    final staConn = bytes.getMaskingByte(1);
+    final softApConn = bytes.getMaskingByte(2);
+
+    response
+      ..opMode = opMode
+      ..staConnectionStatus = staConn
+      ..softApConnCount = softApConn;
+
+    var callbackStatus = BlufiCallback.statusSuccess;
+    var cursor = 3;
+    while (cursor < bytes.length) {
+      final infoType = bytes.getMaskingByte(cursor);
+      cursor++;
+
+      final len = cursor < bytes.length ? bytes.getMaskingByte(cursor) : 0;
+      cursor++;
+
+      final stateBytes = BlufiBytes();
+      for (var i = 0; i < len; i++) {
+        if (cursor < bytes.length) {
+          stateBytes.append(bytes.get(cursor));
+        } else {
+          callbackStatus = BlufiCallback.codeInvalidData;
+          break;
+        }
+        cursor++;
+      }
+      if (callbackStatus != BlufiCallback.statusSuccess) {
+        break;
+      }
+      _parseWifiStateData(response, infoType, stateBytes);
+    }
+
+    _blufiUserCallback?.onDeviceStatusResponse.call(this, callbackStatus, response);
+  }
+
+  void _parseWifiStateData(
+    BlufiStatusResponse response,
+    int infoType,
+    BlufiBytes bytes,
+  ) {
+    switch (infoType) {
+      case BlufiParameter.typeDataSubTypeStaWifiBssid:
+        {
+          final staBssid = bytes.toHex();
+          response.staBssid = staBssid;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeStaWifiSsid:
+        {
+          final staSsid = bytes.toHex();
+          response.staSsid = staSsid;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeStaWifiPassword:
+        {
+          final staPassword = bytes.toString();
+          response.staPassword = staPassword;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeSoftApAuthMode:
+        {
+          final authMode = bytes.get(0);
+          response.softApSecurity = authMode;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeSoftApChannel:
+        {
+          final softApChannel = bytes.get(0);
+          response.softApChannel = softApChannel;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeSoftApMaxConnectionCount:
+        {
+          final softApMaxConnCount = bytes.get(0);
+          response.softApMaxConnCount = softApMaxConnCount;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeSoftApWifiPassword:
+        {
+          final softApPassword = bytes.toString();
+          response.softApPassword = softApPassword;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeSoftApWifiSsid:
+        {
+          final softApSsid = bytes.toString();
+          response.softApSsid = softApSsid;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeWifiStaMaxConnRetry:
+        {
+          final maxRetry = bytes.get(0);
+          response.connectionMaxRetry = maxRetry;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeWifiStaConnEndReason:
+        {
+          final endReason = bytes.get(0);
+          response.connectionEndReason = endReason;
+          break;
+        }
+      case BlufiParameter.typeDataSubTypeWifiStaConnRssi:
+        {
+          final rssi = bytes.get(0);
+          response.connectionRssi = rssi;
+          break;
+        }
     }
   }
 
